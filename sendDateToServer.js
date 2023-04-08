@@ -1,8 +1,12 @@
 const https = require("https");
+require("dotenv").config();
+
+const firebaseUrl = process.env.FIREBASE_URL;
+const firebasePath = process.env.FIREBASE_PATH;
 
 const databaseOptions = {
-  hostname: "apiko-test-774c2-default-rtdb.firebaseio.com",
-  path: "/apiko/-NSQPFdG8lsREoG3ral5.json",
+  hostname: firebaseUrl,
+  path: firebasePath,
   method: "PUT",
   port: 443,
   headers: {

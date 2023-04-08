@@ -1,6 +1,23 @@
+// requiring modules
+
 const https = require("https");
 const cron = require("node-cron");
 const winston = require("winston");
+
+require("dotenv").config();
+
+const sendDateToServer = require("./sendDateToServer");
+
+//creating needed vars
+
+const firebaseUrl = process.env.FIREBASE_URL;
+const firebasePath = process.env.FIREBASE_PATH;
+const storeUrl = process.env.STORE_URL;
+const storePath = process.env.STORE_PATH;
+const storeId = process.env.STORE_ID;
+const apiKey = process.env.API_KEY;
+
+const fullFirebaseUrl = `https://${firebaseUrl}${firebasePath}`;
 
 const logger = winston.createLogger({
   level: "info",
@@ -8,27 +25,29 @@ const logger = winston.createLogger({
   transports: new winston.transports.File({ filename: "app.log" }),
 });
 
-const sendDateToServer = require("./sendDateToServer");
-
-const databaseUrl =
-  "https://apiko-test-774c2-default-rtdb.firebaseio.com/apiko/-NSQPFdG8lsREoG3ral5.json";
-
-const myHeaders = {
-  "ORDERDESK-STORE-ID": 52170,
-  "ORDERDESK-API-KEY": "xisZL2Z7CrjKkxh2qrJh64RfpZqd48H2tonLWBpF6zX4kqpt7t",
+const requestHeaders = {
+  "ORDERDESK-STORE-ID": storeId,
+  "ORDERDESK-API-KEY": apiKey,
   "Content-type": "application/json",
 };
 
-const fetchLatestOrders = async () => {
-  const dateRes = await fetch(databaseUrl);
+//the main function
+
+const findNewOrders = async () => {
+  //fetching the latest datetime orders were processed
+
+  const dateRes = await fetch(fullFirebaseUrl);
   const latestDate = await dateRes.json();
   const dateString = new Date(latestDate).toISOString();
 
+  //getting orders from the api
+
   const getOrdersOptions = {
-    host: "app.orderdesk.me",
-    path: "/api/v2/orders?search_start_date_local=" + dateString,
-    headers: myHeaders,
+    host: storeUrl,
+    path: `${storePath}?search_start_date_local=${dateString}`,
+    headers: requestHeaders,
   };
+
   try {
     https.get(getOrdersOptions, (response) => {
       if (response.statusCode !== 200) {
@@ -45,6 +64,8 @@ const fetchLatestOrders = async () => {
       response.on("end", () => {
         const latestOrders = JSON.parse(data).orders;
 
+        //writing the id and address to the program log file
+
         latestOrders.forEach((order) => {
           const id = order.id;
           const address =
@@ -53,9 +74,10 @@ const fetchLatestOrders = async () => {
             order.shipping.address3 ||
             order.shipping.address4;
           logger.info(
-            `${new Date()} New order: ID:${id}; shipping address: ${address}.`
+            `${new Date().toISOString()} New order: ID:${id}; shipping address: ${address}.`
           );
 
+          //updating the latest date in the database
           sendDateToServer(JSON.stringify(Date.now()));
         });
       });
@@ -66,5 +88,5 @@ const fetchLatestOrders = async () => {
 };
 
 cron.schedule("0 * * * *", () => {
-  fetchLatestOrders();
+  findNewOrders();
 });
