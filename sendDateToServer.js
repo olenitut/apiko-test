@@ -13,6 +13,9 @@ const databaseOptions = {
 function sendDateToServer(date) {
   const request = https.request(databaseOptions);
   request.write(date);
+  request.on("error", (error) => {
+    console.error(error);
+  });
   request.end();
 }
 
