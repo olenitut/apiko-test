@@ -29,32 +29,40 @@ const fetchLatestOrders = async () => {
     path: "/api/v2/orders?search_start_date_local=" + dateString,
     headers: myHeaders,
   };
+  try {
+    https.get(getOrdersOptions, (response) => {
+      if (response.statusCode !== 200) {
+        logger.error(`Request failed with status code ${response.statusCode}`);
+        return;
+      }
 
-  https.get(getOrdersOptions, (response) => {
-    let data = "";
+      let data = "";
 
-    response.on("data", (chunk) => {
-      data += chunk;
-    });
+      response.on("data", (chunk) => {
+        data += chunk;
+      });
 
-    response.on("end", () => {
-      const latestOrders = JSON.parse(data).orders;
+      response.on("end", () => {
+        const latestOrders = JSON.parse(data).orders;
 
-      latestOrders.forEach((order) => {
-        const id = order.id;
-        const address =
-          order.shipping.address1 ||
-          order.shipping.address2 ||
-          order.shipping.address3 ||
-          order.shipping.address4;
-        logger.info(
-          `${new Date()} New order: ID:${id}; shipping address: ${address}.`
-        );
+        latestOrders.forEach((order) => {
+          const id = order.id;
+          const address =
+            order.shipping.address1 ||
+            order.shipping.address2 ||
+            order.shipping.address3 ||
+            order.shipping.address4;
+          logger.info(
+            `${new Date()} New order: ID:${id}; shipping address: ${address}.`
+          );
 
-        sendDateToServer(JSON.stringify(Date.now()));
+          sendDateToServer(JSON.stringify(Date.now()));
+        });
       });
     });
-  });
+  } catch (err) {
+    logger.error(err);
+  }
 };
 
 cron.schedule("0 * * * *", () => {
