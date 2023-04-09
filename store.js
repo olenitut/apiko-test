@@ -6,84 +6,135 @@ const winston = require("winston");
 
 require("dotenv").config();
 
-const sendDateToServer = require("./sendDateToServer");
-
 //creating needed vars
 
-const firebaseUrl = process.env.FIREBASE_URL;
-const firebasePath = process.env.FIREBASE_PATH;
-const storeUrl = process.env.STORE_URL;
-const storePath = process.env.STORE_PATH;
-const storeId = process.env.STORE_ID;
-const apiKey = process.env.API_KEY;
+const {
+  FIREBASE_URL,
+  FIREBASE_PATH,
+  STORE_URL,
+  STORE_PATH,
+  STORE_ID,
+  API_KEY,
+} = process.env;
 
-const fullFirebaseUrl = `https://${firebaseUrl}${firebasePath}`;
+const fullFirebaseUrl = `https://${FIREBASE_URL}${FIREBASE_PATH}`;
 
 const logger = winston.createLogger({
   level: "info",
   format: winston.format.simple(),
-  transports: new winston.transports.File({ filename: "app.log" }),
+  transports: [
+    new winston.transports.File({ filename: "app.log" }),
+    new winston.transports.Console(),
+  ],
 });
 
 const requestHeaders = {
-  "ORDERDESK-STORE-ID": storeId,
-  "ORDERDESK-API-KEY": apiKey,
+  "ORDERDESK-STORE-ID": STORE_ID,
+  "ORDERDESK-API-KEY": API_KEY,
   "Content-type": "application/json",
 };
 
-//the main function
+const databasePutOptions = {
+  hostname: FIREBASE_URL,
+  path: FIREBASE_PATH,
+  method: "PUT",
+  port: 443,
+  headers: {
+    "Content-type": "application/json",
+  },
+};
 
-const findNewOrders = async () => {
-  //fetching the latest datetime orders were processed
+//helper functions
 
-  const dateRes = await fetch(fullFirebaseUrl);
-  const latestDate = await dateRes.json();
-  const dateString = new Date(latestDate).toISOString();
+const getLatestProcessedDate = async () => {
+  const response = await fetch(fullFirebaseUrl);
+  const latestDate = await response.json();
 
-  //getting orders from the api
+  return new Date(latestDate).toISOString();
+};
 
-  const getOrdersOptions = {
-    host: storeUrl,
-    path: `${storePath}?search_start_date_local=${dateString}`,
+const getNewOrders = async (latestDate) => {
+  const searchStartDate = `search_start_date_local=${latestDate}`;
+  const options = {
+    host: STORE_URL,
+    path: `${STORE_PATH}?${searchStartDate}`,
     headers: requestHeaders,
   };
 
-  try {
-    https.get(getOrdersOptions, (response) => {
-      if (response.statusCode !== 200) {
-        logger.error(`Request failed with status code ${response.statusCode}`);
-        return;
-      }
+  return new Promise((resolve, reject) => {
+    https
+      .get(options, (response) => {
+        let data = "";
 
-      let data = "";
-
-      response.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      response.on("end", () => {
-        const latestOrders = JSON.parse(data).orders;
-
-        //writing the id and address to the program log file
-
-        latestOrders.forEach((order) => {
-          const id = order.id;
-          const address =
-            order.shipping.address1 ||
-            order.shipping.address2 ||
-            order.shipping.address3 ||
-            order.shipping.address4;
-          logger.info(
-            `${new Date().toISOString()} New order: ID:${id}; shipping address: ${address}.`
-          );
-
-          //updating the latest date in the database
-          sendDateToServer(JSON.stringify(Date.now()));
+        response.on("data", (chunk) => {
+          data += chunk;
         });
+
+        response.on("end", () => {
+          if (response.statusCode !== 200) {
+            reject(
+              new Error(
+                `Request failed with status code ${response.statusCode}`
+              )
+            );
+            return;
+          }
+
+          const { orders } = JSON.parse(data);
+          resolve(orders);
+        });
+      })
+      .on("error", (error) => {
+        reject(error);
       });
+  });
+};
+
+const sendDateToServer = (date) => {
+  const request = https.request(databasePutOptions);
+
+  request.on("error", (error) => {
+    logger.error(error);
+  });
+  request.on("timeout", () => {
+    logger.error("Request timed out");
+    request.destroy();
+  });
+  request.on("response", (response) => {
+    if (response.statusCode !== 200) {
+      logger.error(`Request failed with status code ${response.statusCode}`);
+    }
+  });
+  request.write(date);
+  request.end();
+};
+
+const logNewOrder = (order) => {
+  const { id, shipping } = order;
+  const address =
+    shipping.address1 ||
+    shipping.address2 ||
+    shipping.address3 ||
+    shipping.address4;
+
+  logger.info(
+    `${new Date().toISOString()} New order: ID:${id}; shipping address: ${address}.`
+  );
+};
+
+//the main function
+const findNewOrders = async () => {
+  try {
+    const latestDate = await getLatestProcessedDate();
+    const orders = await getNewOrders(latestDate);
+
+    orders.forEach((order) => {
+      logNewOrder(order);
     });
-  } catch (err) {
-    logger.error(err);
+
+    sendDateToServer(JSON.stringify(Date.now()));
+  } catch (error) {
+    logger.error(error);
   }
 };
 
