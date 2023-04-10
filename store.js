@@ -17,8 +17,6 @@ const {
   API_KEY,
 } = process.env;
 
-const fullFirebaseUrl = `https://${FIREBASE_URL}${FIREBASE_PATH}`;
-
 const logger = winston.createLogger({
   level: "info",
   format: winston.format.simple(),
@@ -46,11 +44,43 @@ const databasePutOptions = {
 
 //helper functions
 
-const getLatestProcessedDate = async () => {
-  const response = await fetch(fullFirebaseUrl);
-  const latestDate = await response.json();
+// the previous version used fetch for getting this data, however the fetch API is not supported in many currently used versions
+// of node js. Therefore, there was no error on my computer and an error on another one. I made a desicion to switch to https get method
+//instead as it is widely supported. I used the fetch function in the precious version for a sole reason to
+// show I can use different methods of getting data from an api =)
 
-  return new Date(latestDate).toISOString();
+const getLatestProcessedDate = () => {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: FIREBASE_URL,
+      path: FIREBASE_PATH,
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        if (res.statusCode === 200) {
+          const latestDate = JSON.parse(data);
+          resolve(new Date(latestDate).toISOString());
+        } else {
+          reject(
+            new Error(`Request failed with status code ${res.statusCode}`)
+          );
+        }
+      });
+    });
+    req.on("error", (error) => {
+      reject(error);
+    });
+    req.end();
+  });
 };
 
 const getNewOrders = async (latestDate) => {
